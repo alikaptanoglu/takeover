@@ -1,238 +1,363 @@
-#!/usr/bin/env python 
-#
-# TakeOver - Subdomain TakeOver Finder
-# Coded by Momo Outaadi (m4ll0k)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#SubDomain Takeover Scanner by 0x94
 
-from __future__ import print_function
-
-import re
-import os
+import Queue
+import threading
 import sys
-import time
-import getopt
-import urllib3
-import urlparse
+import optparse
 import requests
+from lib.TerminalSize import get_terminal_size
+import platform
+from thirdparty.colorama import *
+import time
 
-# -- common services
-# -- Add new services
-# -- {'NAME SERVICE' : {'code':'[300-499]','error':'ERROR HERE'}}
-# -- https://github.com/EdOverflow/can-i-take-over-xyz
+if platform.system() == 'Windows':
+    from thirdparty.colorama.win32 import *
+    
+queue = Queue.Queue()
+progress=0
+lastInLine = False
 
-services = {
-	'AWS/S3'          : {'code':'[300-499]','error':r'The specified bucket does not exit'},
-	'BitBucket'       : {'code':'[300-499]','error':r'Repository not found'},
-	'CloudFront'      : {'code':'[300-499]','error':r'ERROR\: The request could not be satisfied'},
-	'Github'          : {'code':'[300-499]','error':r'There isn\'t a Github Pages site here\.'},
-	'Shopify'         : {'code':'[300-499]','error':r'Sorry\, this shop is currently unavailable\.'},
-	'Desk'            : {'code':'[300-499]','error':r'Sorry\, We Couldn\'t Find That Page'},
-	'Fastly'          : {'code':'[300-499]','error':r'Fastly error\: unknown domain\:'},
-
-	'FeedPress'       : {'code':'[300-499]','error':r'The feed has not been found\.'},
-	'Ghost'           : {'code':'[300-499]','error':r'The thing you were looking for is no longer here\, or never was'},
-	'Heroku'          : {'code':'[300-499]','error':r'no-such-app.html|<title>no such app</title>|herokucdn.com/error-pages/no-such-app.html'},
-	'Pantheon'        : {'code':'[300-499]','error':r'The gods are wise, but do not know of the site which you seek.'},
-	'Tumbler'         : {'code':'[300-499]','error':r'Whatever you were looking for doesn\'t currently exist at this address.'},
-	'Wordpress'       : {'code':'[300-499]','error':r'Do you want to register'},
-	'ZenDesk'         : {'code':'[300-499]','error':r'Help Center Closed'},
-
-	'TeamWork'        : {'code':'[300-499]','error':r'Oops - We didn\'t find your site.'},
-	'Helpjuice'       : {'code':'[300-499]','error':r'We could not find what you\'re looking for.'},
-	'Helpscout'       : {'code':'[300-499]','error':r'No settings were found for this company:'},
-	'S3Bucket'        : {'code':'[300-499]','error':r'The specified bucket does not exist'},
-	'Cargo'           : {'code':'[300-499]','error':r'<title>404 &mdash; File not found</title>'},
-	'StatuPage'       : {'code':'[300-499]','error':r'You are being <a href=\"https://www.statuspage.io\">redirected'},
-	'Uservoice'       : {'code':'[300-499]','error':r'This UserVoice subdomain is currently available!'},
-	'Surge'           : {'code':'[300-499]','error':r'project not found'},
-	'Intercom'        : {'code':'[300-499]','error':r'This page is reserved for artistic dogs\.|Uh oh\. That page doesn\'t exist</h1>'},
-
-	'Webflow'         : {'code':'[300-499]','error':r'<p class=\"description\">The page you are looking for doesn\'t exist or has been moved.</p>'},
-	'Kajabi'          : {'code':'[300-499]','error':r'<h1>The page you were looking for doesn\'t exist.</h1>'},
-	'Thinkific'       : {'code':'[300-499]','error':r'You may have mistyped the address or the page may have moved.'},
-	'Tave'            : {'code':'[300-499]','error':r'<h1>Error 404: Page Not Found</h1>'},
-	
-	'Wishpond'        : {'code':'[300-499]','error':r'<h1>https://www.wishpond.com/404?campaign=true'},
-	'Aftership'       : {'code':'[300-499]','error':r'Oops.</h2><p class=\"text-muted text-tight\">The page you\'re looking for doesn\'t exist.'},
-	'Aha'             : {'code':'[300-499]','error':r'There is no portal here \.\.\. sending you back to Aha!'},
-	'Tictail'         : {'code':'[300-499]','error':r'to target URL: <a href=\"https://tictail.com|Start selling on Tictail.'},
-	'Brightcove'      : {'code':'[300-499]','error':r'<p class=\"bc-gallery-error-code\">Error Code: 404</p>'},
-	'Bigcartel'       : {'code':'[300-499]','error':r'<h1>Oops! We couldn&#8217;t find that page.</h1>'},
-	'ActiveCampaign'  : {'code':'[300-499]','error':r'alt=\"LIGHTTPD - fly light.\"'},
-
-	'Campaignmonitor' : {'code':'[300-499]','error':r'Double check the URL or <a href=\"mailto:help@createsend.com'},
-	'Acquia'          : {'code':'[300-499]','error':r'The site you are looking for could not be found.|If you are an Acquia Cloud customer and expect to see your site at this address'},
-	'Proposify'       : {'code':'[300-499]','error':r'If you need immediate assistance, please contact <a href=\"mailto:support@proposify.biz'},
-	'Simplebooklet'   : {'code':'[300-499]','error':r'We can\'t find this <a href=\"https://simplebooklet.com'},
-	'GetResponse'     : {'code':'[300-499]','error':r'With GetResponse Landing Pages, lead generation has never been easier'},
-	'Vend'            : {'code':'[300-499]','error':r'Looks like you\'ve traveled too far into cyberspace.'},
-	'Jetbrains'       : {'code':'[300-499]','error':r'is not a registered InCloud YouTrack.'},
-	
-	'Unbounce'        : {'code':'[300-499]','error':r'The requested URL / was not found on this server|The requested URL was not found on this server'},
-	'Smartling'       : {'code':'[300-499]','error':r'Domain is not configured'},
-	'Pingdom'         : {'code':'[300-499]','error':r'pingdom'},
-	'Tilda'           : {'code':'[300-499]','error':r'Domain has been assigned'},
-	'Surveygizmo'     : {'code':'[300-499]','error':r'data-html-name'},
-	'Mashery'         : {'code':'[300-499]','error':r'Unrecognized domain <strong>'},
-
-}
-
-# -- colors 
-r ='\033[1;31m'
-g ='\033[1;32m'
-y ='\033[1;33m'
-b ='\033[1;34m'
-r_='\033[0;31m'
-g_='\033[0;32m'
-y_='\033[0;33m'
-b_='\033[0;34m'
-e_='\033[0m'
-
-# -- print
-def plus(string): print("{}[+]{} {}{}{}".format(g,e_,g_,str(string),e_))
-def warn(string): print("{}[!]{} {}{}{}".format(r,e_,r_,str(string),e_))
-def info(string): print("{}[i]{} {}{}{}".format(y,e_,y_,str(string),e_))
-
-def request(url,proxy,timeout):
-	headers = {'User-Agent':'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:60.0) Gecko/20100101 Firefox/60.0'}
-	try:
-		req = requests.packages.urllib3.disable_warnings(
-			urllib3.exceptions.InsecureRequestWarning
-			)
-		if proxy:
-			req = requests.get(url=url,headers=headers,proxies=proxy,timeout=timeout)
-		else:
-			req = requests.get(url=url,headers=headers,timeout=timeout)
-		return req.status_code,req.content
-	except Exception as e:
-		pass
-	return None,None
-
-def checker(status,content):
-	code = ""
-	error = ""
-	# --
-	for service in services:
-		values = services[service]
-		for value in values:
-			opt = services[service][value]
-			if value == 'error':error = opt 
-			if value == 'code':code = opt 
-		# ---
-		if re.search(code,str(status),re.I) and re.search(error,str(content),re.I):
-			return service,error
-	return None,None
-
-def banner():
-	print("\n   /~\\")
-	print("  C oo   ---------------")
- 	print(" _( ^)  |T|A|K|E|O|V|E|R|")
-	print("/   ~\\  ----------------")
-	print("#> by Momo Outaadi (m4ll0k)")
-	print("#> http://github.com/m4ll0k")
-	print("-"*40)
-
-def help():
-	banner()
-	print("Usage: takeover.py [OPTIONS]\n")
-	print("\t-s --sub-domain\t\tSet sub-domain URL (e.g: admin.example.com)")
-	print("\t-l --sub-domain-list\tScan multiple targets in a text file")
-	print("\t-p --set-proxy\t\tUse a proxy to connect to the target URL")
-	print("\t-o --set-output\t\tUse this setting for save a file")
-	print("\t-t --set-timeout\tSet a request timeout. Default value is 20 seconds\n")
-	print("Example:")
-	print("\t%s --sub-domain test.test.com"%(sys.argv[0]))
-	print("\t%s --sub-domain-list sub.txt --set-output sub_output.txt"%(sys.argv[0]))
-	print("\t%s --sub-domain-list sub.txt --set-output sub_output.txt --set-timeout 3\n"%(sys.argv[0]))
-	sys.exit()
-
-def sett_proxy(proxy):
-	info('Setting proxy.. %s'%proxy)
-	return {
-	'http':proxy,
-	'https':proxy,
-	'ftp':proxy
-	}
-
-def check_path(path):
-	try:
-		if os.path.exists(path):
-			return path
-	except Exception as e:
-		warn('%s'%e.message)
-		sys.exit()
-
-def readfile(path):
-	info('Read wordlist.. %s'%(path))
-	try:
-		return [l.strip() for l in open(check_path(path),'rb')]
-	except Exception as e:
-		warn('%s'%e)
-		sys.exit()
-
-def check_url(url):
-	o = urlparse.urlsplit(url)
-	if o.scheme not in ['http','https','']:
-		warn('Scheme %s not supported!!'%(o.scheme))
-		sys.exit()
-	if o.netloc == '':
-		return 'http://'+o.path
-	elif o.netloc:
-		return o.scheme + '://' + o.netloc
-	else:
-		return 'http://' + o.netloc
-
-def main():
-	# ---
-	set_proxy = None
-	set_output = None
-	sub_domain = None
-	sub_domain_list = None
-	set_timeout = 20
-	# ---
-	if len(sys.argv) < 2: help()
-	try:
-		opts,args = getopt.getopt(sys.argv[1:],'s:l:p:o:t:',
-			['sub-domain=','sub-domain-list=','set-proxy=','set-output=','set-timeout='])
-	except Exception as e:
-		warn("%s"%e.message)
-		time.sleep(1)
-		help()
-	banner()
-	for o,a in opts:
-		if o in ('-s','--sub-domain'):sub_domain = check_url(a)
-		if o in ('-l','--sub-domain-list'):sub_domain_list = readfile(a)
-		if o in ('-p','--set-proxy'):set_proxy = sett_proxy(a)
-		if o in ('-o','--set-output'):set_output = a
-		if o in ('-t','--set-timeout'):set_timeout = int(a)
-	# ---
-	if set_output:
-		file = open(set_output,"wb")
-		file.write('Output File\r\n%s\r\n'%("-"*50))
-	if sub_domain:
-		plus('Starting scanning...')
-		info('Target url... %s'%sub_domain)
-		status,content = request(sub_domain,set_proxy,set_timeout)
-		service,error = checker(status,content)
-		if service and error:
-			plus('Found service: %s'%service)
-			plus('A potential TAKEOVER vulnerability found!')
-	elif sub_domain_list:
-		plus('Starting scanning...')
-		for sub_domain in sub_domain_list:
-			sub_domain = check_url(sub_domain)
-			info('Target url... %s'%sub_domain)
-			status,content = request(sub_domain,set_proxy,set_timeout)
-			service,error = checker(status,content)
-			if service and error:
-				if set_output:
-					file.write('HOST    : %s\r\n'%(sub_domain))
-					file.write('SERVICE : %s\r\n'%(service))
-					file.write('ERRORS  : %s\r\n'%(error))
-	else:help()
-	if set_output:
-		file.close()
 try:
-	main()
-except KeyboardInterrupt as e:
-	warn('Interrupt by user!')
-	sys.exit()
+    import dns.resolver
+except:
+    print("You need to install dnspython")
+    sys.exit(1)
+
+
+
+
+class hazirla:
+    def __init__(self,domain,wordlist,thread,filem):
+        self.domain=domain
+        self.wordlist=wordlist
+        self.thread=thread
+        self.filem=filem
+        
+    def thbaslat(self,sublar,num_lines):
+        
+        lock    = threading.Lock()
+        
+        for subum in sublar:
+            if subum.strip():
+                if self.filem!="":
+                    queue.put(subum.strip())
+                else:
+                    queue.put(subum.strip()+"."+self.domain)
+                    
+                
+        threads = []
+        exit = threading.Event()
+                
+        for i in range(self.thread):
+            t = DnsSorgu(queue,lock,num_lines,exit,self.filem)
+            t.setDaemon(True)
+            threads.append(t)
+            t.start()
+            
+        try:
+            queue.join() 
+        except KeyboardInterrupt:
+            print "Exit"
+            sys.exit(1)        
+
+            
+        
+    def main(self):
+        try:
+            if self.filem!="":
+                num_lines = sum(1 for line in open(self.filem))            
+                dosya  = open(self.filem)                
+            else:
+                num_lines = sum(1 for line in open(self.wordlist))            
+                dosya  = open(self.wordlist)
+ 
+        except IOError:
+            if self.filem!="":
+                print "File not found %s" % (self.filem) 
+            else:
+                print "File not found %s" % (self.wordlist)
+            sys.exit(0)
+        try:
+            self.thbaslat(dosya.xreadlines(),num_lines) 
+        except (KeyboardInterrupt,SystemExit):
+            print "Cancelled"
+            exit()
+            
+class DnsSorgu(threading.Thread):
+    def __init__(self, queue,lock,num_lines,exit,filem):
+        threading.Thread.__init__(self)
+        self.queue      = queue
+        self.lock       = lock
+        self.num_lines = num_lines
+        self.exit = exit
+        self.filem=filem
+                 
+        self.firma={"createsend":"https://www.zendesk.com/",
+                    "cargocollective":"https://cargocollective.com/",
+                    "cloudfront":"https://aws.amazon.com/cloudfront/",
+                    "desk.com":"https://www.desk.com/",
+                    "fastly.net":"https://www.fastly.com/",
+                    "feedpress.me":"https://feed.press/",
+                    "ghost.io":"https://ghost.org/",
+                    "helpjuice.com":"https://helpjuice.com/",
+                    "helpscoutdocs.com":"https://www.helpscout.net/",
+                    "herokudns.com":"https://www.heroku.com/",
+                    "herokussl.com":"https://www.heroku.com/",
+                    "herokuapp.com":"https://www.heroku.com/",
+                    "jetbrains.com":"https://myjetbrains.com/",
+                    "pageserve.co":"https://instapage.com/",
+                    "pingdom.com":"https://www.pingdom.com/",
+                    "amazonaws.com":"https://aws.amazon.com/s3/",
+                    "myshopify.com":"https://www.shopify.com/",
+                    "stspg-customer.com":"https://www.statuspage.io/",
+                    "sgizmo.com":"https://www.surveygizmo.com/",
+                    "surveygizmo.eu":"https://www.surveygizmo.com//",
+                    "sgizmoca.com":"https://www.surveygizmo.com/",
+                    "teamwork.com":"https://www.teamwork.com/",
+                    "tictail.com":"https://tictail.com/",
+                    "domains.tumblr.com":"https://www.tumblr.com/",
+                    "unbouncepages.com":"https://unbounce.com/",
+                    "uservoice.com":"https://www.uservoice.com/",
+                    "bitbucket":"https://bitbucket.org/",
+                    "unbounce.com":"https://unbounce.com/",
+                    "vend":"https://vendcommerce.com/",
+                    "zendesk.com":"https://www.zendesk.com/"}    
+        
+        self.response=["<strong>Trying to access your account",
+                       "Use a personal domain name",
+                        "The request could not be satisfied",
+                        "Sorry, We Couldn't Find That Page",
+                        "Fastly error: unknown domain",
+                        "The feed has not been found",
+                        "You can claim it now at",
+                        "Publishing platform",                        
+                        "<title>No such app</title>",                        
+                        "No settings were found for this company",
+                        "<title>No such app</title>",
+                        "is not a registered InCloud YouTrack.",
+                        "You've Discovered A Missing Link. Our Apologies!",
+                        "Sorry, couldn&rsquo;t find the status page",                        
+                        "NoSuchBucket",
+                        "Sorry, this shop is currently unavailable",
+                        "<title>Hosted Status Pages for Your Company</title>",
+                        "data-html-name=\"Header Logo Link\"",                        
+                        "<title>Oops - We didn't find your site.</title>",
+                        "class=\"MarketplaceHeader__tictailLogo\"",                        
+                        "Whatever you were looking for doesn't currently exist at this address",
+                        "The requested URL was not found on this server",
+                        "The page you have requested does not exist",
+                        "This UserVoice subdomain is currently available!",
+                        "but is not configured for an account on our platform",
+                        "Looks like you've traveled too far into cyberspace.",
+                        "The specified bucket does not exist",
+                        "Bad Request: ERROR: The request could not be satisfied",
+                        "Please try again or try Desk.com free for",
+                        "We could not find what you're looking for",
+                        "No Site For Domain",
+                        "Project doesnt exist... yet!",
+                        "project not found",
+                        "Please renew your subscription",
+                        "Double check the URL or <a href=\"mailto:help@createsend.com",
+                        "There is no portal here",
+                        "You may have mistyped the address or the page may have moved",
+                        "Repository not found",
+                        "<title>404 &mdash; File not found</title>",
+                        "This page is reserved for artistic dogs",
+                        "<h1>The page you were looking for doesn",
+                        "<h1>https://www.wishpond.com/404?campaign=true",
+                        '<p class="bc-gallery-error-code">Error Code: 404</p>',
+                        "<h1>Oops! We couldn&#8217;t find that page.</h1>",
+                        "Unrecognized domain <strong>",
+                        "<title>Help Center Closed | Zendesk</title>"]
+        
+        self.success = Fore.GREEN 
+        self.error = Fore.RED 
+        self.info = Fore.YELLOW  
+    def run(self):
+        try:
+            while True:
+                if self.exit.is_set():
+                    break    
+                with self.lock:
+                    global progress
+                    
+                    if progress<self.num_lines:
+                        progress+=1
+                        
+                    gelenq=self.queue.get()
+                    
+                    
+                    percentage = lambda x, y: float(x) / float(y) * 100
+                
+                    x, y = get_terminal_size()
+                
+                    message = '{0:.2f}% - {aa}/{bb} '.format(percentage(progress, self.num_lines),aa=progress,bb=self.num_lines)
+                
+                
+                    message += 'Scanning: {0}'.format(gelenq)
+                
+                    if len(message) > x:
+                        message = message[:x]
+                    
+                    self.inLine(message) 
+                    
+                
+                    
+                    try:
+                        answers = dns.resolver.query(gelenq, 'CNAME')
+                        for rdata in answers:
+                            
+                            message = '[{0}] {1} - {2} -  Cname -> {3}'.format(
+                                        time.strftime('%H:%M:%S'),
+                                       gelenq,
+                                        answers.qname,
+                                        Fore.YELLOW+rdata.target.to_text()+Style.RESET_ALL
+                                    )
+                            
+                        
+                            self.newLine(message)
+                            
+                            self.domaindel(rdata.target.to_text())
+                            self.takeover(rdata.target.to_text(),gelenq)                    
+                    except:
+                        hata ="hata"                
+                        #answers.timeout = 0.5
+                        #answers.lifetime = 0.10
+                    
+              
+                      
+                    self.queue.task_done() 
+        except StopIteration:
+            return        
+        
+    
+    def domaindel(self,cname):
+        try:
+            dns.resolver.query(cname)
+            return True
+        except:
+            yaz="Cname not  resolved "+cname
+            print Style.BRIGHT+self.error+yaz+Style.RESET_ALL
+            self.filewrite(yaz)
+            return False
+    
+    
+    def detect(self,subdomain):
+        try:
+            subrespon=requests.get("http://"+subdomain).text      
+            for finder in self.response:
+                if finder in subrespon:
+                    self.filewrite("--- TAKEOVER DETECTED !!! : "+subdomain)
+                    print self.error+"--- TAKEOVER DETECTED !!! : "+subdomain+ Style.RESET_ALL
+        except Exception as e:
+            a="error"        
+        
+    def filewrite(self,veri):
+        open("takeover.txt","a+").write(veri+"\n")
+                
+    def takeover(self,domain,subdomain):
+        for firmap in self.firma.keys():
+            if firmap in str(domain):
+                yollanacak="-- Company: "+firmap+" WebSite :"+self.firma[firmap]
+                self.filewrite(subdomain+" --> "+str(domain)+yollanacak+"\n")
+                print self.info+yollanacak+Style.RESET_ALL
+                self.detect(subdomain)
+                
+    def erase(self):
+        if platform.system() == 'Windows':
+            csbi = GetConsoleScreenBufferInfo()
+            line = "\b" * int(csbi.dwCursorPosition.X)
+            sys.stdout.write(line)
+            width = csbi.dwCursorPosition.X
+            csbi.dwCursorPosition.X = 0
+            FillConsoleOutputCharacter(STDOUT, ' ', width, csbi.dwCursorPosition)
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        else:
+            sys.stdout.write('\033[1K')
+            sys.stdout.write('\033[0G')
+            
+    def newLine(self,string):
+        global lastInLine
+        if lastInLine == True:
+            self.erase()
+            
+            
+        if platform.system() == 'Windows':
+            sys.stdout.write(string)
+            sys.stdout.flush()
+            sys.stdout.write('\n')
+            sys.stdout.flush()
+    
+        else:
+            sys.stdout.write(string + '\n')
+            
+        sys.stdout.flush()
+        lastInLine = False
+        sys.stdout.flush()
+        
+    def inLine(self,string):
+        global lastInLine
+        self.erase()
+        sys.stdout.write(string)
+        sys.stdout.flush()
+        lastInLine = True      
+   
+    
+
+if __name__ == '__main__':
+    try: 
+        if platform.system() == 'Windows':
+            init(autoreset=True) #windows icin        
+        parser = optparse.OptionParser()
+        parser.add_option('-d',
+            action = "store", 
+            dest   = "domain",
+            type   = "string")
+        parser.add_option('-w',
+            action = "store", 
+            dest   = "wordlist",
+            type   = "string")  
+        parser.add_option('-t',
+            action = "store", 
+            dest   = "thread",
+            type   = "int")   
+        
+        parser.add_option('-f',
+            action = "store", 
+            dest   = "filem",
+            type   = "string") 
+        
+        (option,args) = parser.parse_args()
+        
+        if not option.domain:
+            print "example: ./takeover.py -d host.com -w wordlist.txt  -t 10 or | ./takeover.py -d host.com -f sublist.txt  -t 10 " 
+            sys.exit(0)   
+        
+            
+        if option.thread:
+            threadsayisi=option.thread
+        else:
+            threadsayisi=20
+            
+           
+            
+        print"""
+        #######################################################
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+        #              SubDomain TakeOver v1.5                #
+        #                    Coder: 0x94                      #
+        #                  twitter.com/0x94                   #
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+        #######################################################  
+        """          
+        if option.filem:
+            x=hazirla(option.domain,option.wordlist,threadsayisi,option.filem)
+        else:
+            x=hazirla(option.domain,option.wordlist,threadsayisi,"")
+        x.main()    
+    except KeyboardInterrupt:
+        print('\n Exit.')
+        sys.exit(0)
